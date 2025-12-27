@@ -71,7 +71,8 @@ datetime g_last_bar_time = 0;        // 用于检测新bar
 string GVPrefix()
 {
   // 终端全局变量名：尽量唯一
-  return StringFormat("VCEA_%s_%I64d_%d_", _Symbol, (long long)InpMagic, (int)InpTF);
+  // 兼容不同编译器：避免 long long / %I64d
+  return "VCEA_" + _Symbol + "_" + IntegerToString((long)InpMagic) + "_" + IntegerToString((int)InpTF) + "_";
 }
 
 void SavePositionStateToGV()
@@ -146,7 +147,9 @@ bool GetRates(MqlRates &rates[], const int need)
 double GetATR(const int shift)
 {
   if(atr_handle == INVALID_HANDLE) return 0.0;
-  double buf[1];
+  double buf[];
+  ArrayResize(buf, 1);
+  // 动态数组可安全设为series；同时消除“static allocated array”的警告
   ArraySetAsSeries(buf, true);
   int copied = CopyBuffer(atr_handle, 0, shift, 1, buf);
   if(copied != 1) return 0.0;
@@ -305,8 +308,8 @@ void ManageOpenPosition(MqlRates &rates[])
     return;
 
   // 用最近一根已收盘bar（shift=1）作为“收盘确认”
-  const MqlRates &cur = rates[1];
-  const MqlRates &prev= rates[2];
+  MqlRates cur  = rates[1];
+  MqlRates prev = rates[2];
 
   // 1) 收盘确认止损（包含初始止损与移动到开仓价后的止损）
   if(ptype == POSITION_TYPE_BUY)
@@ -478,8 +481,8 @@ void ProcessSignalAndEntry(MqlRates &rates[])
       return;
   }
 
-  const MqlRates &cur = rates[1];   // 最近已收盘
-  const MqlRates &prev= rates[2];   // 上一根已收盘
+  MqlRates cur  = rates[1];   // 最近已收盘
+  MqlRates prev = rates[2];   // 上一根已收盘
 
   // 1) 若当前无等待信号，则尝试生成信号A/B
   if(g_sig_state == SIG_NONE)
