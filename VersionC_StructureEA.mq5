@@ -627,26 +627,22 @@ void ProcessSignalAndEntry(MqlRates &rates[])
 
   // 2) 观察期：信号失效 / 入场触发 / 超时
   // 重要：观察期必须按“15分钟K线根数”计算，不能依赖 OnTick 触发频率
-  // bars_elapsed = 从信号触发K线(g_sig_time)到当前最近已收盘K线(cur.time)之间相隔的K线数量
-  // 当前最近已收盘K线固定为 shift=1，因此：bars_elapsed = iBarShift(g_sig_time) - 1
-  int idx_sig = -1;
-  if(g_sig_time > 0)
-    idx_sig = iBarShift(_Symbol, InpTF, g_sig_time, true);
-
+  // 这里用“已收盘K线开盘时间差/周期秒数”来推导经过了多少根K线：
+  // bars_elapsed = (cur.time - g_sig_time) / PeriodSeconds(InpTF)
+  // 其中 cur.time 为最近一根已收盘K线（shift=1）的开盘时间，g_sig_time 为信号触发K线（第4根）的开盘时间。
+  // 观察期允许“接下来 8 根K线”触发入场，因此超时条件应为 bars_elapsed > InpObserveBars（而不是 >=）。
   int bars_elapsed = 0;
-  if(g_sig_state != SIG_NONE)
+  if(g_sig_state != SIG_NONE && g_sig_time > 0)
   {
-    if(idx_sig < 0)
-    {
-      // 无法定位信号对应bar（历史不足/时间不精确），直接取消该信号
-      ResetSignal();
-      return;
-    }
-    bars_elapsed = idx_sig - 1;
-    g_obs_left = InpObserveBars - bars_elapsed;
+    int ps = PeriodSeconds(InpTF);
+    if(ps <= 0) ps = 900;
+    bars_elapsed = (int)((cur.time - g_sig_time) / ps);
+    if(bars_elapsed < 0) bars_elapsed = 0;
+    // 仅用于展示/调试：剩余可用根数（例如 bars_elapsed=1 => 8；bars_elapsed=8 => 1）
+    g_obs_left = InpObserveBars - bars_elapsed + 1;
   }
 
-  if(g_sig_state != SIG_NONE && g_obs_left <= 0)
+  if(g_sig_state != SIG_NONE && bars_elapsed > InpObserveBars)
   {
     if(InpMarkSignalInvalid)
     {
