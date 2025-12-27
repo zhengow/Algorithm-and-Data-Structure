@@ -684,7 +684,10 @@ void ProcessSignalAndEntry(MqlRates &rates[])
         double atr = GetATR(1);
         double y = stop_exec - (atr > 0.0 ? atr * 0.10 : 0.0);
         DrawSignalMarker("INV", cur.time, y, clrGray, 251, "Signal invalidated: " + g_sig_id + " (close < A_low-Buffer)");
-        Print("Signal invalidated: ", g_sig_id, " at ", TimeToString(cur.time, TIME_DATE|TIME_MINUTES), " close=", DoubleToString(cur.close, _Digits));
+        Print("Signal invalidated: ", g_sig_id,
+              " at ", TimeToString(cur.time, TIME_DATE|TIME_MINUTES),
+              " close=", DoubleToString(cur.close, _Digits),
+              " inv=", DoubleToString(stop_exec, _Digits));
       }
       ResetSignal();
       return;
@@ -715,7 +718,10 @@ void ProcessSignalAndEntry(MqlRates &rates[])
       trade.SetExpertMagicNumber(InpMagic);
       trade.SetDeviationInPoints(InpSlippagePoints);
 
-      string cmt = "VCEA " + g_sig_id + " e=" + IntegerToString(bars_elapsed);
+      // comment中同时打印失效线价格（便于回测核对是否“收盘已触发失效”）
+      string cmt = "VCEA " + g_sig_id
+                   + " e=" + IntegerToString(bars_elapsed)
+                   + " x=" + DoubleToString(stop_exec, _Digits);
       if(trade.Buy(vol, _Symbol, 0.0, 0.0, 0.0, cmt))
       {
         // 回填实际成交信息（防止与预估entry偏差）
@@ -738,7 +744,10 @@ void ProcessSignalAndEntry(MqlRates &rates[])
         g_no_new_extreme_bars = 0;
         g_high_watermark = cur.high;
         SavePositionStateToGV();
-        Print("ENTRY BUY ", cmt, " cur=", TimeToString(cur.time, TIME_DATE|TIME_MINUTES));
+        Print("ENTRY BUY ", cmt,
+              " cur=", TimeToString(cur.time, TIME_DATE|TIME_MINUTES),
+              " close=", DoubleToString(cur.close, _Digits),
+              " inv=", DoubleToString(stop_exec, _Digits));
         ResetSignal(); // 入场后不再等待该信号
       }
       else
@@ -763,7 +772,10 @@ void ProcessSignalAndEntry(MqlRates &rates[])
         double atr = GetATR(1);
         double y = stop_exec + (atr > 0.0 ? atr * 0.10 : 0.0);
         DrawSignalMarker("INV", cur.time, y, clrGray, 251, "Signal invalidated: " + g_sig_id + " (close > B_high+Buffer)");
-        Print("Signal invalidated: ", g_sig_id, " at ", TimeToString(cur.time, TIME_DATE|TIME_MINUTES), " close=", DoubleToString(cur.close, _Digits));
+        Print("Signal invalidated: ", g_sig_id,
+              " at ", TimeToString(cur.time, TIME_DATE|TIME_MINUTES),
+              " close=", DoubleToString(cur.close, _Digits),
+              " inv=", DoubleToString(stop_exec, _Digits));
       }
       ResetSignal();
       return;
@@ -793,7 +805,9 @@ void ProcessSignalAndEntry(MqlRates &rates[])
       trade.SetExpertMagicNumber(InpMagic);
       trade.SetDeviationInPoints(InpSlippagePoints);
 
-      string cmt = "VCEA " + g_sig_id + " e=" + IntegerToString(bars_elapsed);
+      string cmt = "VCEA " + g_sig_id
+                   + " e=" + IntegerToString(bars_elapsed)
+                   + " x=" + DoubleToString(stop_exec, _Digits);
       if(trade.Sell(vol, _Symbol, 0.0, 0.0, 0.0, cmt))
       {
         ENUM_POSITION_TYPE ptype;
@@ -815,7 +829,10 @@ void ProcessSignalAndEntry(MqlRates &rates[])
         g_no_new_extreme_bars = 0;
         g_low_watermark = cur.low;
         SavePositionStateToGV();
-        Print("ENTRY SELL ", cmt, " cur=", TimeToString(cur.time, TIME_DATE|TIME_MINUTES));
+        Print("ENTRY SELL ", cmt,
+              " cur=", TimeToString(cur.time, TIME_DATE|TIME_MINUTES),
+              " close=", DoubleToString(cur.close, _Digits),
+              " inv=", DoubleToString(stop_exec, _Digits));
         ResetSignal();
       }
       else
