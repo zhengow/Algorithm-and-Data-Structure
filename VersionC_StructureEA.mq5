@@ -627,19 +627,21 @@ void ProcessSignalAndEntry(MqlRates &rates[])
 
   // 2) 观察期：信号失效 / 入场触发 / 超时
   // 重要：观察期必须按“15分钟K线根数”计算，不能依赖 OnTick 触发频率
-  // 这里用“已收盘K线开盘时间差/周期秒数”来推导经过了多少根K线：
-  // bars_elapsed = (cur.time - g_sig_time) / PeriodSeconds(InpTF)
-  // 其中 cur.time 为最近一根已收盘K线（shift=1）的开盘时间，g_sig_time 为信号触发K线（第4根）的开盘时间。
-  // 观察期允许“接下来 8 根K线”触发入场，因此超时条件应为 bars_elapsed > InpObserveBars（而不是 >=）。
+  // 这里用 iBarShift 计算信号K线距离当前最近已收盘K线(shift=1)隔了多少根：
+  // idx_sig = 当前时刻信号K线的shift；bars_elapsed = idx_sig - 1
+  // 允许的观察期为“接下来 8 根K线”，因此超时条件：bars_elapsed > 8
   int bars_elapsed = 0;
   if(g_sig_state != SIG_NONE && g_sig_time > 0)
   {
-    int ps = PeriodSeconds(InpTF);
-    if(ps <= 0) ps = 900;
-    bars_elapsed = (int)((cur.time - g_sig_time) / ps);
-    if(bars_elapsed < 0) bars_elapsed = 0;
-    // 仅用于展示/调试：剩余可用根数（例如 bars_elapsed=1 => 8；bars_elapsed=8 => 1）
-    g_obs_left = InpObserveBars - bars_elapsed + 1;
+    int idx_sig = iBarShift(_Symbol, InpTF, g_sig_time, false); // exact=false：避免时间不完全匹配导致-1
+    if(idx_sig < 1)
+    {
+      // 找不到信号K线（历史不足/数据异常）直接丢弃
+      ResetSignal();
+      return;
+    }
+    bars_elapsed = idx_sig - 1;
+    g_obs_left = InpObserveBars - bars_elapsed; // 仅用于展示/调试
   }
 
   if(g_sig_state != SIG_NONE && bars_elapsed > InpObserveBars)
@@ -701,7 +703,8 @@ void ProcessSignalAndEntry(MqlRates &rates[])
       trade.SetExpertMagicNumber(InpMagic);
       trade.SetDeviationInPoints(InpSlippagePoints);
 
-      if(trade.Buy(vol, _Symbol, 0.0, 0.0, 0.0, "VCEA " + g_sig_id))
+      string cmt = "VCEA " + g_sig_id + " e=" + IntegerToString(bars_elapsed);
+      if(trade.Buy(vol, _Symbol, 0.0, 0.0, 0.0, cmt))
       {
         // 回填实际成交信息（防止与预估entry偏差）
         ENUM_POSITION_TYPE ptype;
@@ -723,6 +726,7 @@ void ProcessSignalAndEntry(MqlRates &rates[])
         g_no_new_extreme_bars = 0;
         g_high_watermark = cur.high;
         SavePositionStateToGV();
+        Print("ENTRY BUY ", cmt, " cur=", TimeToString(cur.time, TIME_DATE|TIME_MINUTES));
         ResetSignal(); // 入场后不再等待该信号
       }
       else
@@ -777,7 +781,8 @@ void ProcessSignalAndEntry(MqlRates &rates[])
       trade.SetExpertMagicNumber(InpMagic);
       trade.SetDeviationInPoints(InpSlippagePoints);
 
-      if(trade.Sell(vol, _Symbol, 0.0, 0.0, 0.0, "VCEA " + g_sig_id))
+      string cmt = "VCEA " + g_sig_id + " e=" + IntegerToString(bars_elapsed);
+      if(trade.Sell(vol, _Symbol, 0.0, 0.0, 0.0, cmt))
       {
         ENUM_POSITION_TYPE ptype;
         double pvol, popen;
@@ -798,6 +803,7 @@ void ProcessSignalAndEntry(MqlRates &rates[])
         g_no_new_extreme_bars = 0;
         g_low_watermark = cur.low;
         SavePositionStateToGV();
+        Print("ENTRY SELL ", cmt, " cur=", TimeToString(cur.time, TIME_DATE|TIME_MINUTES));
         ResetSignal();
       }
       else
