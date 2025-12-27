@@ -40,6 +40,7 @@ input int    InpArrowCodeA           = 233;        // Wingdings: 上箭头
 input int    InpArrowCodeB           = 234;        // Wingdings: 下箭头
 input int    InpArrowSize            = 2;          // 箭头粗细
 input bool   InpDebugSignalTooltip   = true;       // 在tooltip里输出触发用到的4根K线信息
+input bool   InpMarkSignalInvalid    = true;       // 信号失效/超时也做标记（便于回测核对）
 
 //========================
 // 全局对象/状态
@@ -62,6 +63,7 @@ double   g_sig_B_high = 0.0;
 double   g_sig_buffer = 0.0;        // Buffer = ATR*0.25（信号生成时记录）
 datetime g_sig_time = 0;            // 触发信号（第4根）K线的 time
 int      g_obs_left = 0;            // 观察期剩余根数
+string   g_sig_id = "";             // 当前等待信号ID（用于把“开仓归因到哪次信号”）
 
 // 持仓管理信息（入场后使用）
 double   g_entry_price = 0.0;
@@ -175,8 +177,9 @@ string BarLine(const string tag, const MqlRates &r)
   double pct = (r.open > 0.0 ? (r.close / r.open - 1.0) * 100.0 : 0.0);
   string dir = (r.close > r.open ? "BULL" : (r.close < r.open ? "BEAR" : "DOJI"));
   string t = TimeToString(r.time, TIME_DATE|TIME_MINUTES);
-  return StringFormat("%s %s O=%.5f C=%.5f (%.4f%%) %s V=%lld",
-                      tag, t, r.open, r.close, pct, dir, (long long)GetBarVolume(r));
+  string v = IntegerToString((long)GetBarVolume(r));
+  return StringFormat("%s %s O=%.5f C=%.5f (%.4f%%) %s V=%s",
+                      tag, t, r.open, r.close, pct, dir, v);
 }
 
 string BuildSignalDebugTooltipA(MqlRates &rates[], const double A_low, const double buf)
@@ -376,6 +379,7 @@ void ResetSignal()
   g_sig_buffer = 0.0;
   g_sig_time = 0;
   g_obs_left = 0;
+  g_sig_id = "";
 }
 
 void ResetPositionState()
@@ -591,6 +595,7 @@ void ProcessSignalAndEntry(MqlRates &rates[])
       g_sig_buffer = buf;
       g_sig_time = stime;
       g_obs_left = InpObserveBars;
+      g_sig_id = "A@" + TimeToString(g_sig_time, TIME_DATE|TIME_MINUTES);
 
       // 画图标记：信号A触发（第4根收盘）
       double atr = GetATR(1);
@@ -607,6 +612,7 @@ void ProcessSignalAndEntry(MqlRates &rates[])
       g_sig_buffer = buf;
       g_sig_time = stime;
       g_obs_left = InpObserveBars;
+      g_sig_id = "B@" + TimeToString(g_sig_time, TIME_DATE|TIME_MINUTES);
 
       // 画图标记：信号B触发（第4根收盘）
       double atr = GetATR(1);
@@ -622,6 +628,17 @@ void ProcessSignalAndEntry(MqlRates &rates[])
   // 2) 观察期：信号失效 / 入场触发 / 超时
   if(g_obs_left <= 0)
   {
+    if(InpMarkSignalInvalid)
+    {
+      double atr = GetATR(1);
+      double y = (g_sig_state == SIG_WAIT_LONG
+                  ? g_sig_A_low - (atr > 0.0 ? atr * 0.20 : 0.0)
+                  : g_sig_B_high + (atr > 0.0 ? atr * 0.20 : 0.0));
+      color c = (g_sig_state == SIG_WAIT_LONG ? clrGray : clrGray);
+      int code = 251; // Wingdings: X
+      DrawSignalMarker("TMO", cur.time, y, c, code, "Signal timeout: " + g_sig_id);
+      Print("Signal timeout: ", g_sig_id, " at ", TimeToString(cur.time, TIME_DATE|TIME_MINUTES));
+    }
     ResetSignal();
     return;
   }
@@ -633,6 +650,13 @@ void ProcessSignalAndEntry(MqlRates &rates[])
     // 观察期内尚未进场：若收盘有效跌破 A_low - Buffer，则信号失效
     if(cur.close < stop_exec)
     {
+      if(InpMarkSignalInvalid)
+      {
+        double atr = GetATR(1);
+        double y = stop_exec - (atr > 0.0 ? atr * 0.10 : 0.0);
+        DrawSignalMarker("INV", cur.time, y, clrGray, 251, "Signal invalidated: " + g_sig_id + " (close < A_low-Buffer)");
+        Print("Signal invalidated: ", g_sig_id, " at ", TimeToString(cur.time, TIME_DATE|TIME_MINUTES), " close=", DoubleToString(cur.close, _Digits));
+      }
       ResetSignal();
       return;
     }
@@ -662,7 +686,7 @@ void ProcessSignalAndEntry(MqlRates &rates[])
       trade.SetExpertMagicNumber(InpMagic);
       trade.SetDeviationInPoints(InpSlippagePoints);
 
-      if(trade.Buy(vol, _Symbol))
+      if(trade.Buy(vol, _Symbol, 0.0, 0.0, 0.0, "VCEA " + g_sig_id))
       {
         // 回填实际成交信息（防止与预估entry偏差）
         ENUM_POSITION_TYPE ptype;
@@ -705,6 +729,13 @@ void ProcessSignalAndEntry(MqlRates &rates[])
     // 观察期内尚未进场：若收盘有效突破 B_high + Buffer，则信号失效
     if(cur.close > stop_exec)
     {
+      if(InpMarkSignalInvalid)
+      {
+        double atr = GetATR(1);
+        double y = stop_exec + (atr > 0.0 ? atr * 0.10 : 0.0);
+        DrawSignalMarker("INV", cur.time, y, clrGray, 251, "Signal invalidated: " + g_sig_id + " (close > B_high+Buffer)");
+        Print("Signal invalidated: ", g_sig_id, " at ", TimeToString(cur.time, TIME_DATE|TIME_MINUTES), " close=", DoubleToString(cur.close, _Digits));
+      }
       ResetSignal();
       return;
     }
@@ -733,7 +764,7 @@ void ProcessSignalAndEntry(MqlRates &rates[])
       trade.SetExpertMagicNumber(InpMagic);
       trade.SetDeviationInPoints(InpSlippagePoints);
 
-      if(trade.Sell(vol, _Symbol))
+      if(trade.Sell(vol, _Symbol, 0.0, 0.0, 0.0, "VCEA " + g_sig_id))
       {
         ENUM_POSITION_TYPE ptype;
         double pvol, popen;
