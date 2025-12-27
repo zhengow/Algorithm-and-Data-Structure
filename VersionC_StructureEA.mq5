@@ -88,6 +88,15 @@ string GVPrefix()
   return "VCEA_" + _Symbol + "_" + IntegerToString((long)InpMagic) + "_" + IntegerToString((int)InpTF) + "_";
 }
 
+string SigIdCompact(const string side, const datetime t)
+{
+  MqlDateTime dt;
+  TimeToStruct(t, dt);
+  int yy = dt.year % 100;
+  // 形如：A2501141600（YYMMDDHHMM）
+  return side + StringFormat("%02d%02d%02d%02d%02d", yy, dt.mon, dt.day, dt.hour, dt.min);
+}
+
 void SavePositionStateToGV()
 {
   string p = GVPrefix();
@@ -607,7 +616,7 @@ void ProcessSignalAndEntry(MqlRates &rates[])
       g_sig_buffer = buf;
       g_sig_time = stime;
       g_obs_left = InpObserveBars;
-      g_sig_id = "A@" + TimeToString(g_sig_time, TIME_DATE|TIME_MINUTES);
+      g_sig_id = SigIdCompact("A", g_sig_time);
 
       // 画图标记：信号A触发（第4根收盘）
       double atr = GetATR(1);
@@ -624,7 +633,7 @@ void ProcessSignalAndEntry(MqlRates &rates[])
       g_sig_buffer = buf;
       g_sig_time = stime;
       g_obs_left = InpObserveBars;
-      g_sig_id = "B@" + TimeToString(g_sig_time, TIME_DATE|TIME_MINUTES);
+      g_sig_id = SigIdCompact("B", g_sig_time);
 
       // 画图标记：信号B触发（第4根收盘）
       double atr = GetATR(1);
@@ -718,10 +727,11 @@ void ProcessSignalAndEntry(MqlRates &rates[])
       trade.SetExpertMagicNumber(InpMagic);
       trade.SetDeviationInPoints(InpSlippagePoints);
 
-      // comment中同时打印失效线价格（便于回测核对是否“收盘已触发失效”）
-      string cmt = "VCEA " + g_sig_id
-                   + " e=" + IntegerToString(bars_elapsed)
-                   + " x=" + DoubleToString(stop_exec, _Digits);
+      // MT5订单comment长度有限（常见31字符），用紧凑格式避免被截断
+      int sd = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
+      string cmt = "VCEA" + g_sig_id
+                   + "e" + IntegerToString(bars_elapsed)
+                   + "x" + DoubleToString(stop_exec, sd);
       if(trade.Buy(vol, _Symbol, 0.0, 0.0, 0.0, cmt))
       {
         // 回填实际成交信息（防止与预估entry偏差）
@@ -805,9 +815,10 @@ void ProcessSignalAndEntry(MqlRates &rates[])
       trade.SetExpertMagicNumber(InpMagic);
       trade.SetDeviationInPoints(InpSlippagePoints);
 
-      string cmt = "VCEA " + g_sig_id
-                   + " e=" + IntegerToString(bars_elapsed)
-                   + " x=" + DoubleToString(stop_exec, _Digits);
+      int sd = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
+      string cmt = "VCEA" + g_sig_id
+                   + "e" + IntegerToString(bars_elapsed)
+                   + "x" + DoubleToString(stop_exec, sd);
       if(trade.Sell(vol, _Symbol, 0.0, 0.0, 0.0, cmt))
       {
         ENUM_POSITION_TYPE ptype;
