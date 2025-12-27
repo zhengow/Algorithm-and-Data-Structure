@@ -39,6 +39,7 @@ input color  InpColorSignalB         = clrTomato;  // 信号B颜色
 input int    InpArrowCodeA           = 233;        // Wingdings: 上箭头
 input int    InpArrowCodeB           = 234;        // Wingdings: 下箭头
 input int    InpArrowSize            = 2;          // 箭头粗细
+input bool   InpDebugSignalTooltip   = true;       // 在tooltip里输出触发用到的4根K线信息
 
 //========================
 // 全局对象/状态
@@ -166,6 +167,40 @@ void DrawSignalMarker(const string sig, const datetime t, const double price, co
       }
     }
   }
+}
+
+string BarLine(const string tag, const MqlRates &r)
+{
+  // 说明：TimeToString 在策略测试里同样有效
+  double pct = (r.open > 0.0 ? (r.close / r.open - 1.0) * 100.0 : 0.0);
+  string dir = (r.close > r.open ? "BULL" : (r.close < r.open ? "BEAR" : "DOJI"));
+  string t = TimeToString(r.time, TIME_DATE|TIME_MINUTES);
+  return StringFormat("%s %s O=%.5f C=%.5f (%.4f%%) %s V=%lld",
+                      tag, t, r.open, r.close, pct, dir, (long long)GetBarVolume(r));
+}
+
+string BuildSignalDebugTooltipA(MqlRates &rates[], const double A_low, const double buf)
+{
+  if(!InpDebugSignalTooltip) return "Signal A (4 bull + vol4>vol1)";
+  string s = "Signal A (cond: 4 bull, each >=0.01%, vol4>vol1)\n";
+  s += BarLine("B1", rates[4]) + "\n";
+  s += BarLine("B2", rates[3]) + "\n";
+  s += BarLine("B3", rates[2]) + "\n";
+  s += BarLine("B4", rates[1]) + "\n";
+  s += StringFormat("A_low=%.5f Buffer=%.5f A_low-Buffer=%.5f", A_low, buf, A_low - buf);
+  return s;
+}
+
+string BuildSignalDebugTooltipB(MqlRates &rates[], const double B_high, const double buf)
+{
+  if(!InpDebugSignalTooltip) return "Signal B (4 bear + vol4>vol1)";
+  string s = "Signal B (cond: 4 bear, each <=-0.01%, vol4>vol1)\n";
+  s += BarLine("B1", rates[4]) + "\n";
+  s += BarLine("B2", rates[3]) + "\n";
+  s += BarLine("B3", rates[2]) + "\n";
+  s += BarLine("B4", rates[1]) + "\n";
+  s += StringFormat("B_high=%.5f Buffer=%.5f B_high+Buffer=%.5f", B_high, buf, B_high + buf);
+  return s;
 }
 
 void DeleteOurSignalObjects()
@@ -560,7 +595,9 @@ void ProcessSignalAndEntry(MqlRates &rates[])
       // 画图标记：信号A触发（第4根收盘）
       double atr = GetATR(1);
       double y = g_sig_A_low - (atr > 0.0 ? atr * 0.10 : 0.0);
-      DrawSignalMarker("A", g_sig_time, y, InpColorSignalA, InpArrowCodeA, "Signal A (4 bull + vol4>vol1)");
+      string tip = BuildSignalDebugTooltipA(rates, g_sig_A_low, g_sig_buffer);
+      DrawSignalMarker("A", g_sig_time, y, InpColorSignalA, InpArrowCodeA, tip);
+      Print(tip);
       return;
     }
     if(DetectSignalB(rates, level, buf, stime))
@@ -574,7 +611,9 @@ void ProcessSignalAndEntry(MqlRates &rates[])
       // 画图标记：信号B触发（第4根收盘）
       double atr = GetATR(1);
       double y = g_sig_B_high + (atr > 0.0 ? atr * 0.10 : 0.0);
-      DrawSignalMarker("B", g_sig_time, y, InpColorSignalB, InpArrowCodeB, "Signal B (4 bear + vol4>vol1)");
+      string tip = BuildSignalDebugTooltipB(rates, g_sig_B_high, g_sig_buffer);
+      DrawSignalMarker("B", g_sig_time, y, InpColorSignalB, InpArrowCodeB, tip);
+      Print(tip);
       return;
     }
     return;
