@@ -237,9 +237,21 @@ double NormalizeVolume(const double vol)
 
 bool GetRates(MqlRates &rates[], const int need)
 {
+  // 使用动态数组强制series顺序，避免某些环境下静态数组series标志失效导致“旧->新”填充
+  if(ArraySize(rates) != need)
+    ArrayResize(rates, need);
   ArraySetAsSeries(rates, true);
   int copied = CopyRates(_Symbol, InpTF, 0, need, rates);
-  return (copied >= need);
+  if(copied < need) return false;
+
+  // 额外防护：确保 rates[0] 真的是当前bar(open time)
+  datetime t0 = iTime(_Symbol, InpTF, 0);
+  if(t0 > 0 && rates[0].time != t0)
+  {
+    // 若不同步则不处理本次（避免用到滞后K线）
+    return false;
+  }
+  return true;
 }
 
 double GetATR(const int shift)
@@ -863,8 +875,8 @@ void OnTick()
   if(t0 == g_last_bar_time) return;
   g_last_bar_time = t0;
 
-  MqlRates rates[60];
-  if(!GetRates(rates, 30)) return; // 至少保证有足够历史用于4根结构+2根跟踪+ATR
+  MqlRates rates[];
+  if(!GetRates(rates, 60)) return; // 多取一些历史，便于结构与调试
 
   // 先管理已有持仓（止损/分批/退出）
   ManageOpenPosition(rates);
