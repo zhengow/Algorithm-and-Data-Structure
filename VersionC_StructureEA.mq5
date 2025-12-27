@@ -30,6 +30,16 @@ input double InpPartial2Pct          = 0.40;       // 结构转弱时再平仓�
 input bool   InpUseRealVolume        = false;      // 用 real_volume(若有)；否则用 tick_volume
 input bool   InpOnePositionOnly      = true;       // 单品种单仓
 
+// 画图：信号标记（回测可视化）
+input bool   InpDrawSignals          = true;       // 绘制信号A/B标记
+input bool   InpDrawSignalText       = true;       // 同时绘制A/B文字
+input bool   InpDeleteDrawingsOnDeinit = false;    // EA卸载时删除本EA画的标记
+input color  InpColorSignalA         = clrLime;    // 信号A颜色
+input color  InpColorSignalB         = clrTomato;  // 信号B颜色
+input int    InpArrowCodeA           = 233;        // Wingdings: 上箭头
+input int    InpArrowCodeB           = 234;        // Wingdings: 下箭头
+input int    InpArrowSize            = 2;          // 箭头粗细
+
 //========================
 // 全局对象/状态
 //========================
@@ -118,6 +128,56 @@ void TryLoadPositionStateFromGV()
   g_no_new_extreme_bars = (int)GlobalVariableGet(p + "nn");
   g_high_watermark = GlobalVariableGet(p + "hh");
   g_low_watermark  = GlobalVariableGet(p + "ll");
+}
+
+bool EnsureObjectNotExists(const string name)
+{
+  return (ObjectFind(0, name) < 0);
+}
+
+void DrawSignalMarker(const string sig, const datetime t, const double price, const color c, const int arrow_code, const string tooltip)
+{
+  if(!InpDrawSignals) return;
+
+  string base = GVPrefix() + "SIG_" + sig + "_" + IntegerToString((long)t);
+  string aname = base;
+  if(EnsureObjectNotExists(aname))
+  {
+    if(ObjectCreate(0, aname, OBJ_ARROW, 0, t, price))
+    {
+      ObjectSetInteger(0, aname, OBJPROP_COLOR, c);
+      ObjectSetInteger(0, aname, OBJPROP_WIDTH, InpArrowSize);
+      ObjectSetInteger(0, aname, OBJPROP_ARROWCODE, arrow_code);
+      ObjectSetString(0, aname, OBJPROP_TOOLTIP, tooltip);
+    }
+  }
+
+  if(InpDrawSignalText)
+  {
+    string tname = base + "_T";
+    if(EnsureObjectNotExists(tname))
+    {
+      if(ObjectCreate(0, tname, OBJ_TEXT, 0, t, price))
+      {
+        ObjectSetString(0, tname, OBJPROP_TEXT, sig);
+        ObjectSetInteger(0, tname, OBJPROP_COLOR, c);
+        ObjectSetInteger(0, tname, OBJPROP_FONTSIZE, 10);
+        ObjectSetString(0, tname, OBJPROP_TOOLTIP, tooltip);
+      }
+    }
+  }
+}
+
+void DeleteOurSignalObjects()
+{
+  string p = GVPrefix() + "SIG_";
+  int total = ObjectsTotal(0, 0, -1);
+  for(int i = total - 1; i >= 0; --i)
+  {
+    string name = ObjectName(0, i, 0, -1);
+    if(StringFind(name, p) == 0)
+      ObjectDelete(0, name);
+  }
 }
 
 double NormalizeVolume(const double vol)
@@ -496,6 +556,11 @@ void ProcessSignalAndEntry(MqlRates &rates[])
       g_sig_buffer = buf;
       g_sig_time = stime;
       g_obs_left = InpObserveBars;
+
+      // 画图标记：信号A触发（第4根收盘）
+      double atr = GetATR(1);
+      double y = g_sig_A_low - (atr > 0.0 ? atr * 0.10 : 0.0);
+      DrawSignalMarker("A", g_sig_time, y, InpColorSignalA, InpArrowCodeA, "Signal A (4 bull + vol4>vol1)");
       return;
     }
     if(DetectSignalB(rates, level, buf, stime))
@@ -505,6 +570,11 @@ void ProcessSignalAndEntry(MqlRates &rates[])
       g_sig_buffer = buf;
       g_sig_time = stime;
       g_obs_left = InpObserveBars;
+
+      // 画图标记：信号B触发（第4根收盘）
+      double atr = GetATR(1);
+      double y = g_sig_B_high + (atr > 0.0 ? atr * 0.10 : 0.0);
+      DrawSignalMarker("B", g_sig_time, y, InpColorSignalB, InpArrowCodeB, "Signal B (4 bear + vol4>vol1)");
       return;
     }
     return;
@@ -693,6 +763,9 @@ void OnDeinit(const int reason)
 {
   if(atr_handle != INVALID_HANDLE)
     IndicatorRelease(atr_handle);
+
+  if(InpDeleteDrawingsOnDeinit)
+    DeleteOurSignalObjects();
 }
 
 void OnTick()
