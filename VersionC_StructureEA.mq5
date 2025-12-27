@@ -626,7 +626,27 @@ void ProcessSignalAndEntry(MqlRates &rates[])
   }
 
   // 2) 观察期：信号失效 / 入场触发 / 超时
-  if(g_obs_left <= 0)
+  // 重要：观察期必须按“15分钟K线根数”计算，不能依赖 OnTick 触发频率
+  // bars_elapsed = 从信号触发K线(g_sig_time)到当前最近已收盘K线(cur.time)之间相隔的K线数量
+  // 当前最近已收盘K线固定为 shift=1，因此：bars_elapsed = iBarShift(g_sig_time) - 1
+  int idx_sig = -1;
+  if(g_sig_time > 0)
+    idx_sig = iBarShift(_Symbol, InpTF, g_sig_time, true);
+
+  int bars_elapsed = 0;
+  if(g_sig_state != SIG_NONE)
+  {
+    if(idx_sig < 0)
+    {
+      // 无法定位信号对应bar（历史不足/时间不精确），直接取消该信号
+      ResetSignal();
+      return;
+    }
+    bars_elapsed = idx_sig - 1;
+    g_obs_left = InpObserveBars - bars_elapsed;
+  }
+
+  if(g_sig_state != SIG_NONE && g_obs_left <= 0)
   {
     if(InpMarkSignalInvalid)
     {
@@ -634,10 +654,9 @@ void ProcessSignalAndEntry(MqlRates &rates[])
       double y = (g_sig_state == SIG_WAIT_LONG
                   ? g_sig_A_low - (atr > 0.0 ? atr * 0.20 : 0.0)
                   : g_sig_B_high + (atr > 0.0 ? atr * 0.20 : 0.0));
-      color c = (g_sig_state == SIG_WAIT_LONG ? clrGray : clrGray);
       int code = 251; // Wingdings: X
-      DrawSignalMarker("TMO", cur.time, y, c, code, "Signal timeout: " + g_sig_id);
-      Print("Signal timeout: ", g_sig_id, " at ", TimeToString(cur.time, TIME_DATE|TIME_MINUTES));
+      DrawSignalMarker("TMO", cur.time, y, clrGray, code, "Signal timeout: " + g_sig_id);
+      Print("Signal timeout: ", g_sig_id, " at ", TimeToString(cur.time, TIME_DATE|TIME_MINUTES), " bars_elapsed=", bars_elapsed);
     }
     ResetSignal();
     return;
@@ -717,8 +736,6 @@ void ProcessSignalAndEntry(MqlRates &rates[])
       }
       return;
     }
-
-    g_obs_left--;
     return;
   }
 
@@ -793,8 +810,6 @@ void ProcessSignalAndEntry(MqlRates &rates[])
       }
       return;
     }
-
-    g_obs_left--;
     return;
   }
 }
